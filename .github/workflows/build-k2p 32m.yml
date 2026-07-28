@@ -1,0 +1,52 @@
+name: Build K2P 32M Firmware
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: fanchmwrt-25.12.4
+
+      - name: Setup build environment
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libncurses5-dev gawk git \
+            subversion libssl-dev gettext zlib1g-dev swig unzip time rsync
+
+      # ─────────────────────────────────────────────
+      # 适配 32MB 闪存：扩展 firmware 分区到 31.5MB
+      # ─────────────────────────────────────────────
+      - name: Patch DTS for 32MB flash
+        run: |
+          DTS="target/linux/ramips/dts/mt7621_phicomm_k2p.dts"
+          # 将 firmware 分区从 0xf60000 (15.375MB) 改为 0x1f60000 (31.5MB)
+          sed -i 's/reg = <0xa0000 0xf60000>;/reg = <0xa0000 0x1f60000>;/' "$DTS"
+          echo "=== DTS firmware partition after patch ==="
+          grep -A2 'label = "firmware"' "$DTS"
+
+      - name: Configure
+        run: |
+          echo "CONFIG_TARGET_ramips=y" >> .config
+          echo "CONFIG_TARGET_ramips_mt7621=y" >> .config
+          echo "CONFIG_TARGET_ramips_mt7621_DEVICE_phicomm_k2p=y" >> .config
+          echo "CONFIG_TARGET_KERNEL_PARTSIZE=32" >> .config
+          echo "CONFIG_TARGET_ROOTFS_PARTSIZE=496" >> .config
+          make defconfig
+
+      - name: Build
+        run: |
+          make -j$(nproc) BUILD_LOG=1
+          echo "=== Build complete ==="
+          ls -lh bin/targets/ramips/mt7621/
+
+      - name: Upload firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: k2p-32m-fanchmwrt-firmware
+          path: bin/targets/ramips/mt7621/
