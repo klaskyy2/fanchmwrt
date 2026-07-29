@@ -5,7 +5,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -19,15 +19,20 @@ jobs:
           sudo apt-get install -y build-essential libncurses5-dev gawk git \
             subversion libssl-dev gettext zlib1g-dev swig unzip time rsync
 
-      # ─────────────────────────────────────────────
-      # 适配 32MB 闪存：扩展 firmware 分区到 31.5MB
-      # ─────────────────────────────────────────────
+      # ── 修复：新版 GCC 把隐式函数声明当致命错误，fcm 包用了 -Werror ──
+      - name: Patch fcm packages (remove -Werror)
+        run: |
+          for f in $(find package/fcm -name Makefile); do
+            sed -i 's/-Werror=implicit-function-declaration//g' "$f"
+          done
+          echo "=== remaining -Werror in fcm ==="
+          grep -rn "Werror" package/fcm || echo "none"
+
+      # ── 适配 32MB 闪存 ──
       - name: Patch DTS for 32MB flash
         run: |
           DTS="target/linux/ramips/dts/mt7621_phicomm_k2p.dts"
-          # 将 firmware 分区从 0xf60000 (15.375MB) 改为 0x1f60000 (31.5MB)
           sed -i 's/reg = <0xa0000 0xf60000>;/reg = <0xa0000 0x1f60000>;/' "$DTS"
-          echo "=== DTS firmware partition after patch ==="
           grep -A2 'label = "firmware"' "$DTS"
 
       - name: Configure
@@ -50,3 +55,12 @@ jobs:
         with:
           name: k2p-32m-fanchmwrt-firmware
           path: bin/targets/ramips/mt7621/
+
+      # ── 失败诊断：上传编译日志 ──
+      - name: Upload build logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs
+          path: logs/
+          if-no-files-found: ignore
