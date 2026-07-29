@@ -18,24 +18,22 @@ jobs:
           sudo apt-get install -y build-essential libncurses5-dev gawk git \
             subversion libssl-dev gettext zlib1g-dev swig unzip time rsync
 
-      # 关键修复①：安装 feeds（libsqlite3/libmosquitto/libcurl 等依赖）
       - name: Feeds
         run: |
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      # 关键修复②：去掉 -Werror（strtok_r 等 POSIX 函数未声明不再致命）
       - name: Patch fcm
         run: |
           find package/fcm -name Makefile -exec sed -i 's/-Werror=implicit-function-declaration//g' {} \;
 
-      # 32MB 闪存适配
-      - name: Patch DTS
+      - name: Patch DTS (32MB flash)
         run: |
-          sed -i 's/reg = <0xa0000 0xf60000>;/reg = <0xa0000 0x1f60000>;/' \
-            target/linux/ramips/dts/mt7621_phicomm_k2p.dts
-          # 强制重新编译 DTB（否则增量编译跳过 patch 过的文件）
-          rm -f build_dir/target-*/linux-*/phicomm_k2p*.dtb
+          DTS="target/linux/ramips/dts/mt7621_phicomm_k2p.dts"
+          sed -i 's/reg = <0xa0000 0xf60000>;/reg = <0xa0000 0x1f60000>;/' "$DTS"
+          touch "$DTS"
+          find build_dir -name "phicomm_k2p*.dtb" -delete 2>/dev/null || true
+          find build_dir -name "*.dtb.o" -delete 2>/dev/null || true
 
       - name: Configure
         run: |
@@ -51,8 +49,6 @@ jobs:
       - name: Build
         run: |
           make -j$(nproc) BUILD_LOG=1
-          echo "=== 编译产物 ==="
-          ls -lh bin/targets/ramips/mt7621/
 
       - name: Upload firmware
         if: success()
