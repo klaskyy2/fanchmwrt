@@ -19,7 +19,13 @@ jobs:
           sudo apt-get install -y build-essential libncurses5-dev gawk git \
             subversion libssl-dev gettext zlib1g-dev swig unzip time rsync
 
-      # ── 修复：新版 GCC 把隐式函数声明当致命错误，fcm 包用了 -Werror ──
+      # ── 关键修复①：安装 feeds（libsqlite3/libmosquitto/libcurl 都在 feeds 里）──
+      - name: Update & install feeds
+        run: |
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      # ── 关键修复②：去掉 -Werror（strtok_r 等 POSIX 函数未声明不再致命）──
       - name: Patch fcm packages (remove -Werror)
         run: |
           for f in $(find package/fcm -name Makefile); do
@@ -56,7 +62,6 @@ jobs:
           name: k2p-32m-fanchmwrt-firmware
           path: bin/targets/ramips/mt7621/
 
-      # ── 失败诊断：上传编译日志 ──
       - name: Upload build logs on failure
         if: failure()
         uses: actions/upload-artifact@v4
