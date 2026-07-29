@@ -7,62 +7,61 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           ref: fanchmwrt-25.12.4
 
-      - name: Setup build environment
+      - name: Setup
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential libncurses5-dev gawk git \
             subversion libssl-dev gettext zlib1g-dev swig unzip time rsync
 
-      # ── 关键修复①：安装 feeds（libsqlite3/libmosquitto/libcurl 都在 feeds 里）──
-      - name: Update & install feeds
+      # 关键修复①：安装 feeds（libsqlite3/libmosquitto/libcurl 等依赖）
+      - name: Feeds
         run: |
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      # ── 关键修复②：去掉 -Werror（strtok_r 等 POSIX 函数未声明不再致命）──
-      - name: Patch fcm packages (remove -Werror)
+      # 关键修复②：去掉 -Werror（strtok_r 等 POSIX 函数未声明不再致命）
+      - name: Patch fcm
         run: |
-          for f in $(find package/fcm -name Makefile); do
-            sed -i 's/-Werror=implicit-function-declaration//g' "$f"
-          done
-          echo "=== remaining -Werror in fcm ==="
-          grep -rn "Werror" package/fcm || echo "none"
+          find package/fcm -name Makefile -exec sed -i 's/-Werror=implicit-function-declaration//g' {} \;
 
-      # ── 适配 32MB 闪存 ──
-      - name: Patch DTS for 32MB flash
+      # 32MB 闪存适配
+      - name: Patch DTS
         run: |
-          DTS="target/linux/ramips/dts/mt7621_phicomm_k2p.dts"
-          sed -i 's/reg = <0xa0000 0xf60000>;/reg = <0xa0000 0x1f60000>;/' "$DTS"
-          grep -A2 'label = "firmware"' "$DTS"
+          sed -i 's/reg = <0xa0000 0xf60000>;/reg = <0xa0000 0x1f60000>;/' \
+            target/linux/ramips/dts/mt7621_phicomm_k2p.dts
+          # 强制重新编译 DTB（否则增量编译跳过 patch 过的文件）
+          rm -f build_dir/target-*/linux-*/phicomm_k2p*.dtb
 
       - name: Configure
         run: |
-          echo "CONFIG_TARGET_ramips=y" >> .config
-          echo "CONFIG_TARGET_ramips_mt7621=y" >> .config
-          echo "CONFIG_TARGET_ramips_mt7621_DEVICE_phicomm_k2p=y" >> .config
-          echo "CONFIG_TARGET_KERNEL_PARTSIZE=32" >> .config
-          echo "CONFIG_TARGET_ROOTFS_PARTSIZE=496" >> .config
+          cat >> .config << 'EOF'
+          CONFIG_TARGET_ramips=y
+          CONFIG_TARGET_ramips_mt7621=y
+          CONFIG_TARGET_ramips_mt7621_DEVICE_phicomm_k2p=y
+          CONFIG_TARGET_KERNEL_PARTSIZE=32
+          CONFIG_TARGET_ROOTFS_PARTSIZE=496
+          EOF
           make defconfig
 
       - name: Build
         run: |
           make -j$(nproc) BUILD_LOG=1
-          echo "=== Build complete ==="
+          echo "=== 编译产物 ==="
           ls -lh bin/targets/ramips/mt7621/
 
       - name: Upload firmware
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: k2p-32m-fanchmwrt-firmware
           path: bin/targets/ramips/mt7621/
 
-      - name: Upload build logs on failure
+      - name: Upload logs on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
