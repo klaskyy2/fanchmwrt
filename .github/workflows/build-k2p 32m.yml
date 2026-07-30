@@ -23,7 +23,7 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: Configure (init)
+      - name: Configure
         run: |
           cat >> .config << 'EOF'
           CONFIG_TARGET_ramips=y
@@ -34,21 +34,29 @@ jobs:
           EOF
           make defconfig
 
-      # 32MB 闪存适配：先清理 build_dir（强制全量重编译）
-      - name: Patch DTS (32MB flash) & rebuild
+      # 32MB 闪存适配：彻底清理 + 打补丁 + 验证 + 重编译
+      - name: Patch DTS & Rebuild
         run: |
-          # 1) 清理旧产物（强制重编译）
-          rm -rf build_dir/
+          # 1) 先验证 patch 前 DTS 内容
+          echo "=== patch 前 firmware 分区 ==="
+          grep 'reg = <0xa0000' target/linux/ramips/dts/mt7621_phicomm_k2p.dts
 
-          # 2) 补丁 DTS（firmeware 分区 0xf60000 → 0x1f60000）
-          DTS="target/linux/ramips/dts/mt7621_phicomm_k2p.dts"
-          sed -i 's/reg = <0xa0000 0xf60000>;/reg = <0xa0000 0x1f60000>;/' "$DTS"
-          grep 'reg = <0xa0000' "$DTS"
+          # 2) 补丁 DTS（firmeware 分区 15.5MB → 31.5MB）
+          sed -i 's/reg = <0xa0000 0xf60000>;/reg = <0xa0000 0x1f60000>;/' \
+            target/linux/ramips/dts/mt7621_phicomm_k2p.dts
 
-          # 3) 去掉 -Werror（strtok_r 等 POSIX 函数不再致命）
+          # 3) 验证 patch 成功
+          echo "=== patch 后 firmware 分区 ==="
+          grep 'reg = <0xa0000' target/linux/ramips/dts/mt7621_phicomm_k2p.dts
+
+          # 4) 彻底清理（删所有缓存，强制全量重编译）
+          echo "=== 清理 build_dir / staging_dir / tmp ==="
+          rm -rf build_dir/ staging_dir/ tmp/
+
+          # 5) 去掉 -Werror（strtok_r 等隐式声明在新 GCC 下不再致命）
           find package/fcm -name Makefile -exec sed -i 's/-Werror=implicit-function-declaration//g' {} \;
 
-          # 4) 全量重编译
+          # 6) 强制重编译
           make -j$(nproc) BUILD_LOG=1
 
       - name: Upload firmware
