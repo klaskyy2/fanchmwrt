@@ -23,19 +23,7 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: Patch fcm
-        run: |
-          find package/fcm -name Makefile -exec sed -i 's/-Werror=implicit-function-declaration//g' {} \;
-
-      - name: Patch DTS (32MB flash)
-        run: |
-          DTS="target/linux/ramips/dts/mt7621_phicomm_k2p.dts"
-          sed -i 's/reg = <0xa0000 0xf60000>;/reg = <0xa0000 0x1f60000>;/' "$DTS"
-          touch "$DTS"
-          find build_dir -name "phicomm_k2p*.dtb" -delete 2>/dev/null || true
-          find build_dir -name "*.dtb.o" -delete 2>/dev/null || true
-
-      - name: Configure
+      - name: Configure (init)
         run: |
           cat >> .config << 'EOF'
           CONFIG_TARGET_ramips=y
@@ -46,8 +34,21 @@ jobs:
           EOF
           make defconfig
 
-      - name: Build
+      # 32MB 闪存适配：先清理 build_dir（强制全量重编译）
+      - name: Patch DTS (32MB flash) & rebuild
         run: |
+          # 1) 清理旧产物（强制重编译）
+          rm -rf build_dir/
+
+          # 2) 补丁 DTS（firmeware 分区 0xf60000 → 0x1f60000）
+          DTS="target/linux/ramips/dts/mt7621_phicomm_k2p.dts"
+          sed -i 's/reg = <0xa0000 0xf60000>;/reg = <0xa0000 0x1f60000>;/' "$DTS"
+          grep 'reg = <0xa0000' "$DTS"
+
+          # 3) 去掉 -Werror（strtok_r 等 POSIX 函数不再致命）
+          find package/fcm -name Makefile -exec sed -i 's/-Werror=implicit-function-declaration//g' {} \;
+
+          # 4) 全量重编译
           make -j$(nproc) BUILD_LOG=1
 
       - name: Upload firmware
